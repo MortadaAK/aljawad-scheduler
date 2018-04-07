@@ -4,10 +4,13 @@ defmodule AljawadScheduler.Application do
   @moduledoc false
 
   use Application
+  import Supervisor.Spec, warn: false
 
   def start(_type, _args) do
     # List all child processes to be supervised
     children = [
+      supervisor(Task.Supervisor, [[name: AljawadScheduler.SchedulerWorkerSupervisor]])
+
       # Starts a worker by calling: AljawadScheduler.Worker.start_link(arg)
       # {AljawadScheduler.Worker, arg},
     ]
