@@ -193,15 +193,4 @@ defmodule AljawadScheduler.Scheduler do
       hours + current_hours
     end)
   end
-
-  defp sum_by_type(schedule, type) do
-    Enum.reduce(schedule, 0, fn {_machine, {jobs, _total_hours}}, hours ->
-      Enum.reduce(jobs, hours, fn {step, h}, hours ->
-        case step do
-          ^type -> hours + h
-          _ -> hours
-        end
-      end)
-    end)
-  end
 end
