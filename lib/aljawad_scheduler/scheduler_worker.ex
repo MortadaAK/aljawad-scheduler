@@ -68,7 +68,7 @@ defmodule AljawadScheduler.SchedulerWorker do
 
     if max > Scheduler.get_max(new_schedule) &&
          max > Scheduler.max_min_remaining(new_schedule, remaining_jobs) do
-      if level > 1 do
+      if level > 3 do
         Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
           for next <- remaining_jobs do
             rest_of_jobs = List.delete(remaining_jobs, next)
