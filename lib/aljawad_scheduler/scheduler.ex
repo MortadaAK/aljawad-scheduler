@@ -193,4 +193,55 @@ defmodule AljawadScheduler.Scheduler do
       hours + current_hours
     end)
   end
+
+  @doc """
+  Generate groups based on the machines that each job will work on.
+  By splitting these jobs into multiple groups, will reduce the number of
+  possibilities for finding the optimized schedule
+  """
+  @spec generate_groups(map()) :: [map()]
+  def generate_groups(jobs) do
+    jobs
+    |> extract_machines()
+    |> group_jobs()
+    |> Enum.map(fn {job_list, _machines} -> job_list end)
+    |> convert_to_maps(jobs)
+  end
+
+  defp extract_machines(jobs) do
+    Enum.map(jobs, fn {job, operations} ->
+      [job, Enum.map(operations, fn {machine, _} -> machine end)]
+    end)
+  end
+
+  defp add_job_to_group({jobs, machines}, job, job_machines) do
+    {jobs ++ [job], Enum.uniq(job_machines ++ machines)}
+  end
+
+  defp group_jobs(list_of_jobs) do
+    Enum.reduce(list_of_jobs, [], fn [job, machines], groups ->
+      groups
+      |> Enum.find(fn {_jobs, group_machines} ->
+        group_machines -- machines != group_machines
+      end)
+      |> case do
+        nil ->
+          groups ++ [{[job], machines}]
+
+        group ->
+          List.delete(groups, group) ++ [add_job_to_group(group, job, machines)]
+      end
+    end)
+  end
+
+  defp convert_to_maps(list_of_jobs, jobs) do
+    Enum.reduce(list_of_jobs, [], fn jobs_list, groups ->
+      group =
+        Enum.reduce(jobs_list, %{}, fn job, map ->
+          Map.put(map, job, Map.get(jobs, job))
+        end)
+
+      groups ++ [group]
+    end)
+  end
 end

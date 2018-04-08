@@ -74,6 +74,20 @@ defmodule AljawadScheduler.SchedulerTest do
              |> Scheduler.schedule_operation(:m1, :j1, {5, 5})
   end
 
+  test "generate groups of jobs which there is no shared machine between them" do
+    jobs = %{
+      j1: [m1: 2, m2: 2, m4: 2],
+      j2: [m3: 2, m5: 2, m6: 2],
+      j3: [m3: 2, m6: 2, m7: 2],
+      j4: [m4: 2, m8: 2, m9: 2]
+    }
+
+    assert [
+             %{j2: [m3: 2, m5: 2, m6: 2], j3: [m3: 2, m6: 2, m7: 2]},
+             %{j1: [m1: 2, m2: 2, m4: 2], j4: [m4: 2, m8: 2, m9: 2]}
+           ] = Scheduler.generate_groups(jobs)
+  end
+
   describe "schedule" do
     setup do
       machines = %{m1: 10, m2: 5, m3: 0, m4: 15}
