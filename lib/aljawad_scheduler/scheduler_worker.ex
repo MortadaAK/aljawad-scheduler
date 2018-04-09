@@ -7,8 +7,6 @@ defmodule AljawadScheduler.SchedulerWorker do
     SchedulerWorkerSupervisor
   }
 
-  @nested_stream 3
-
   def stream_jobs(name, {jobs, index}, machines) do
     stream_jobs(name, index, Map.to_list(jobs), machines, 0)
   end
@@ -46,7 +44,7 @@ defmodule AljawadScheduler.SchedulerWorker do
     ScheduleRunner.set_schedule(name, index, new_schedule)
     ScheduleRunner.increment_performed(name, 1)
     ScheduleRunner.increment_performed(name, index, 1)
-    nil
+    []
   end
 
   @doc """
@@ -58,36 +56,19 @@ defmodule AljawadScheduler.SchedulerWorker do
   between then is greater than the maximum, then there is no point to continue
   in the search process.
   """
-  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
-      when level < @nested_stream do
+
+  def schedule(name, index, machines, {job, steps}, remaining_jobs, level) do
     new_schedule = Scheduler.schedule_job(machines, job, steps)
 
     if should_continue?(name, index, new_schedule, remaining_jobs) do
-      stream_jobs(name, index, remaining_jobs, new_schedule, level + 1)
+      for next <- remaining_jobs do
+        rest_of_jobs = List.delete(remaining_jobs, next)
+        {name, index, new_schedule, next, rest_of_jobs, level + 1}
+      end
     else
       increment_performed(name, index, remaining_jobs)
+      []
     end
-
-    nil
-  end
-
-  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
-      when level >= @nested_stream do
-    new_schedule = Scheduler.schedule_job(machines, job, steps)
-
-    if should_continue?(name, index, new_schedule, remaining_jobs) do
-      Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
-        for next <- remaining_jobs do
-          rest_of_jobs = List.delete(remaining_jobs, next)
-          SchedulerWorker.schedule(name, index, new_schedule, next, rest_of_jobs, level + 1)
-        end
-      end)
-      |> Task.await(:infinity)
-    else
-      increment_performed(name, index, remaining_jobs)
-    end
-
-    nil
   end
 
   defp increment_performed(name, index, remaining_jobs) do

@@ -8,7 +8,8 @@ defmodule AljawadScheduler.ScheduleRunner do
     Permutation,
     ScheduleRunner,
     SchedulerWorker,
-    SchedulerWorkerSupervisor
+    SchedulerWorkerSupervisor,
+    SchedulerServer
   }
 
   ## ETS
@@ -302,10 +303,24 @@ defmodule AljawadScheduler.ScheduleRunner do
     {:ok, groups} = ScheduleRunner.groups(name)
     set_base_lines(name, groups, machines)
 
+    # groups
+    # |> Stream.with_index()
+    # |> Stream.map(&SchedulerWorker.stream_jobs(name, &1, machines))
+    # |> Enum.to_list()
     groups
-    |> Stream.with_index()
-    |> Stream.map(&SchedulerWorker.stream_jobs(name, &1, machines))
-    |> Enum.to_list()
+    |> Enum.map(&Map.to_list/1)
+    |> Enum.with_index()
+    |> Enum.map(fn {[job | rest], index} ->
+      Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
+        {:ok, server} = SchedulerServer.start_link({name, index, machines, job, rest, 0})
+        SchedulerServer.register(server)
+
+        receive do
+          :finished -> nil
+        end
+      end)
+    end)
+    |> Enum.map(&Task.await(&1, :infinity))
 
     current_schedule(name)
   end
