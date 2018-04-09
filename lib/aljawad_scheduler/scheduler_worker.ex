@@ -7,7 +7,7 @@ defmodule AljawadScheduler.SchedulerWorker do
     SchedulerWorkerSupervisor
   }
 
-  @nested_stream 2
+  @nested_stream 3
 
   def stream_jobs(name, {jobs, index}, machines) do
     stream_jobs(name, index, Map.to_list(jobs), machines, 0)

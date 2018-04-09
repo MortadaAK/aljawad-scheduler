@@ -262,7 +262,7 @@ defmodule AljawadScheduler.ScheduleRunner do
   """
   @spec setup_table(atom(), map(), map(), [map()]) :: :ok
   def setup_table(name, machines, jobs, groups) do
-    :ets.new(name, [:named_table, :set, :public, read_concurrency: true])
+    :ets.new(name, [:named_table, :set, :public, read_concurrency: true, write_concurrency: true])
 
     groups
     |> Enum.map(&Enum.count/1)

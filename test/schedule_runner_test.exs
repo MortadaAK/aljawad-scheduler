@@ -125,7 +125,7 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
 
     name = :schedule123
     {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: name})
-    assert ScheduleRunner.start_scheduling(name)
+    assert :timer.tc(fn -> ScheduleRunner.start_scheduling(name) end) |> IO.inspect()
 
     assert {:ok,
             [
@@ -196,11 +196,11 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
       j26036: [m2105: 15, m2103: 15],
       j26038: [m2105: 29, m2103: 41, m2411: 61, m2411: 8],
       j25669: [m2222: 2, m2411: 3, m2502: 3],
-      j25546: [m2105: 2, m2214: 3, m2906: 1],
-      j25829: [m2103: 2, m2222: 1, m2405: 2, m2503: 6],
-      j25827: [m2105: 1, m2214: 2, m2906: 3],
-      j25828: [m2105: 1, m2214: 2, m2904: 3],
-      j25906: [m2105: 2, m2214: 4, m2904: 6],
+      # j25546: [m2105: 2, m2214: 3, m2906: 1],
+      # j25829: [m2103: 2, m2222: 1, m2405: 2, m2503: 6],
+      # j25827: [m2105: 1, m2214: 2, m2906: 3],
+      # j25828: [m2105: 1, m2214: 2, m2904: 3],
+      # j25906: [m2105: 2, m2214: 4, m2904: 6],
       j25911: [m2105: 4, m2214: 6, m2904: 2],
       j25926: [m2105: 3, m2103: 5, m2225: 5, m2301: 8, m2411: 7, m2508: 7],
       j25503: [m2103: 2, m2222: 2, m2301: 3, m2411: 3, m2303: 6, m2502: 4],
@@ -225,9 +225,9 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
       j25745: [m2103: 2, m2913: 3, m2222: 3, m2304: 4, m2409: 4],
       j25320: [m2103: 1, m2913: 2, m2225: 2, m2304: 4, m2405: 3],
       j25321: [m2103: 1, m2913: 2, m2225: 2, m2304: 3, m2411: 2],
-      j25578: [m2103: 2, m2211: 4, m2309: 5, m2218: 11, m2405: 4, m2502: 4],
-      j25564: [m2105: 2, m2214: 12, m2908: 10],
-      j25701: [m2103: 2, m2913: 2, m2222: 2, m2310: 2, m2409: 3]
+      j25578: [m2103: 2, m2211: 4, m2309: 5, m2218: 11, m2405: 4, m2502: 4]
+      # j25564: [m2105: 2, m2214: 12, m2908: 10],
+      # j25701: [m2103: 2, m2913: 2, m2222: 2, m2310: 2, m2409: 3]
     }
 
     :observer.start()
@@ -311,9 +311,9 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
 
     :observer.start()
     name = :schedule123
-    AljawadScheduler.ScheduleRunner.init(%{machines: machines, jobs: jobs, name: name})
+    ScheduleRunner.init(%{machines: machines, jobs: jobs, name: name})
     ScheduleRunner.groups(name)
     # assert {:ok, _} =
-    AljawadScheduler.ScheduleRunner.start_scheduling(name)
+    ScheduleRunner.start_scheduling(name)
   end
 end
