@@ -7,21 +7,17 @@ defmodule AljawadScheduler.SchedulerWorker do
     SchedulerWorkerSupervisor
   }
 
-  def stream_groups(name, groups, machines) do
-    Task.Supervisor.async_stream(
-      SchedulerWorkerSupervisor,
-      Enum.with_index(groups),
-      &stream_jobs(name, &1, machines),
-      timeout: :infinity
-    )
-    |> Enum.to_list()
-  end
+  @nested_stream 2
 
   def stream_jobs(name, {jobs, index}, machines) do
+    stream_jobs(name, index, Map.to_list(jobs), machines, 0)
+  end
+
+  def stream_jobs(name, index, jobs, machines, level) do
     Task.Supervisor.async_stream(
       SchedulerWorkerSupervisor,
       jobs,
-      &schedule_job(name, index, Map.to_list(jobs), &1, machines, 0),
+      &schedule_job(name, index, jobs, &1, machines, level),
       timeout: :infinity
     )
     |> Enum.to_list()
@@ -33,7 +29,7 @@ defmodule AljawadScheduler.SchedulerWorker do
     SchedulerWorker.schedule(
       name,
       index,
-      filter_machines(machines, jobs),
+      machines,
       job,
       rest_of_jobs,
       level
@@ -50,7 +46,7 @@ defmodule AljawadScheduler.SchedulerWorker do
     ScheduleRunner.set_schedule(name, index, new_schedule)
     ScheduleRunner.increment_performed(name, 1)
     ScheduleRunner.increment_performed(name, index, 1)
-    0
+    nil
   end
 
   @doc """
@@ -62,62 +58,52 @@ defmodule AljawadScheduler.SchedulerWorker do
   between then is greater than the maximum, then there is no point to continue
   in the search process.
   """
-  def schedule(name, index, machines, {job, steps}, remaining_jobs, level) do
+  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
+      when level < @nested_stream do
     new_schedule = Scheduler.schedule_job(machines, job, steps)
-    {:ok, max} = ScheduleRunner.max(name, index)
 
-    if max > Scheduler.get_max(new_schedule) &&
-         max > Scheduler.max_min_remaining(new_schedule, remaining_jobs) do
-      if level > 3 do
-        Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
-          for next <- remaining_jobs do
-            rest_of_jobs = List.delete(remaining_jobs, next)
-            SchedulerWorker.schedule(name, index, new_schedule, next, rest_of_jobs, level + 1)
-          end
-        end)
-        |> (&[&1]).()
-        |> Enum.map(&Task.await(&1, :infinity))
-      else
-        Task.Supervisor.async_stream(
-          SchedulerWorkerSupervisor,
-          remaining_jobs,
-          &schedule_job(name, index, remaining_jobs, &1, new_schedule, level + 1),
-          timeout: :infinity
-        )
-        |> Enum.to_list()
-        |> Enum.map(fn {:ok, count} -> count end)
-      end
-      |> List.flatten()
-      |> Enum.sum()
+    if should_continue?(name, index, new_schedule, remaining_jobs) do
+      stream_jobs(name, index, remaining_jobs, new_schedule, level + 1)
     else
-      skipped =
-        remaining_jobs
-        |> Enum.count()
-        |> Permutation.factorial()
-
-      ScheduleRunner.increment_performed(name, index, skipped)
-      ScheduleRunner.increment_performed(name, skipped)
-
-      skipped
+      increment_performed(name, index, remaining_jobs)
     end
+
+    nil
   end
 
-  def filter_machines(machines, jobs) do
-    machines_list =
-      jobs
-      |> Enum.map(fn {_job, operations} ->
-        Enum.map(operations, fn {machine, _} ->
-          machine
-        end)
-      end)
-      |> List.flatten()
-      |> Enum.uniq()
+  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
+      when level >= @nested_stream do
+    new_schedule = Scheduler.schedule_job(machines, job, steps)
 
-    Enum.filter(machines, fn {name, _} ->
-      Enum.member?(machines_list, name)
-    end)
-    |> Enum.reduce(%{}, fn {machine, start}, machines ->
-      Map.put(machines, machine, start)
-    end)
+    if should_continue?(name, index, new_schedule, remaining_jobs) do
+      Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
+        for next <- remaining_jobs do
+          rest_of_jobs = List.delete(remaining_jobs, next)
+          SchedulerWorker.schedule(name, index, new_schedule, next, rest_of_jobs, level + 1)
+        end
+      end)
+      |> Task.await(:infinity)
+    else
+      increment_performed(name, index, remaining_jobs)
+    end
+
+    nil
+  end
+
+  defp increment_performed(name, index, remaining_jobs) do
+    skipped =
+      remaining_jobs
+      |> Enum.count()
+      |> Permutation.factorial()
+
+    ScheduleRunner.increment_performed(name, index, skipped)
+    ScheduleRunner.increment_performed(name, skipped)
+  end
+
+  defp should_continue?(name, index, new_schedule, remaining_jobs) do
+    {:ok, max} = ScheduleRunner.max(name, index)
+
+    max > Scheduler.get_max(new_schedule) &&
+      max > Scheduler.max_min_remaining(new_schedule, remaining_jobs)
   end
 end

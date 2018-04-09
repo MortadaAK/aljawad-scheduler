@@ -92,7 +92,7 @@
 		},
 		{
 			"taskName": "Test Current Test",
-			"command": "mix test ${workspaceFolder}/${relativeFile}:${lineNumber}",
+			"command": "elixir --erl \"+P 18000000\" -S  mix test ${workspaceFolder}/${relativeFile}:${lineNumber}",
 			"group": "test",
 			"type": "shell",
 			"problemMatcher": ["$mixCompileError", "$mixCompileWarning", "$mixTestFailure"],

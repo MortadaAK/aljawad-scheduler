@@ -49,7 +49,7 @@ defmodule AljawadScheduler.Scheduler do
       cond do
         finish == start || start == 0 ->
           {
-            wc_schedule ++ [{job, duration}],
+            [wc_schedule | [{job, duration}]] |> List.flatten(),
             duration + finish,
             lag,
             waiting
@@ -59,7 +59,7 @@ defmodule AljawadScheduler.Scheduler do
           current_lag = start - finish
 
           {
-            wc_schedule ++ [{:l, current_lag}, {job, duration}],
+            [wc_schedule | [{:l, current_lag}, {job, duration}]] |> List.flatten(),
             duration + finish + current_lag,
             current_lag + lag,
             waiting
@@ -69,7 +69,7 @@ defmodule AljawadScheduler.Scheduler do
           current_waiting = finish - start
 
           {
-            wc_schedule ++ [{:w, current_waiting}, {job, duration}],
+            [wc_schedule | [{:w, current_waiting}, {job, duration}]] |> List.flatten(),
             duration + finish,
             lag,
             waiting + current_waiting
@@ -204,6 +204,7 @@ defmodule AljawadScheduler.Scheduler do
     jobs
     |> extract_machines()
     |> group_jobs()
+    |> connect_groups()
     |> Enum.map(fn {job_list, _machines} -> job_list end)
     |> convert_to_maps(jobs)
   end
@@ -214,24 +215,41 @@ defmodule AljawadScheduler.Scheduler do
     end)
   end
 
-  defp add_job_to_group({jobs, machines}, job, job_machines) do
-    {jobs ++ [job], Enum.uniq(job_machines ++ machines)}
+  defp group_jobs(list_of_jobs) do
+    list_of_jobs
+    |> Enum.map(fn [job, machines] -> {[job], machines} end)
   end
 
-  defp group_jobs(list_of_jobs) do
-    Enum.reduce(list_of_jobs, [], fn [job, machines], groups ->
+  def connect_groups(groups) do
+    new_groups =
       groups
-      |> Enum.find(fn {_jobs, group_machines} ->
-        group_machines -- machines != group_machines
-      end)
-      |> case do
-        nil ->
-          groups ++ [{[job], machines}]
+      |> Enum.reduce(groups, fn {jobs, machines}, new_groups ->
+        new_groups
+        |> Enum.find(fn {_, base_machines} ->
+          !MapSet.disjoint?(MapSet.new(base_machines), MapSet.new(machines))
+        end)
+        |> case do
+          nil ->
+            new_groups
 
-        group ->
-          List.delete(groups, group) ++ [add_job_to_group(group, job, machines)]
-      end
-    end)
+          {group_jobs, group_machines} ->
+            [
+              {
+                [group_jobs | jobs] |> List.flatten() |> Enum.uniq(),
+                [group_machines | machines] |> List.flatten() |> Enum.uniq()
+              }
+              | new_groups
+                |> List.delete({group_jobs, group_machines})
+                |> List.delete({jobs, machines})
+            ]
+        end
+      end)
+
+    if(
+      MapSet.equal?(MapSet.new(groups), MapSet.new(new_groups)),
+      do: new_groups,
+      else: connect_groups(new_groups)
+    )
   end
 
   defp convert_to_maps(list_of_jobs, jobs) do

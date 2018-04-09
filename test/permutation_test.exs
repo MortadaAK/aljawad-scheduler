@@ -123,12 +123,10 @@ defmodule AljawadScheduler.PermutationTest do
     #   group_size =
     #     (limit / portion)
     #     |> round
-    #     |> IO.inspect()
 
     #   for s <- 0..group_size do
     #     start_at = s * portion
     #     end_at = min((s + 1) * portion - 1, limit)
-    #     IO.inspect("#{start_at}..#{end_at} Started")
 
     #     Task.async(fn ->
     #       {t, nil} =
@@ -144,7 +142,6 @@ defmodule AljawadScheduler.PermutationTest do
     #           nil
     #         end)
 
-    #       IO.inspect("#{start_at}..#{end_at} Ended #{t / 1_000_000}")
     #     end)
     #   end
     #   |> Enum.map(&Task.await(&1, :infinity))
