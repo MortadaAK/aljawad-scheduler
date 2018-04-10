@@ -3,27 +3,29 @@ defmodule AljawadScheduler.SchedulerWorker do
     Scheduler,
     Permutation,
     ScheduleRunner,
-    SchedulerWorker,
-    SchedulerWorkerSupervisor
+    SchedulerWorker
+    # SchedulerWorkerSupervisor
   }
 
-  @nested_stream 3
+  def stream_jobs(name, index, jobs, schedule) do
+    # {:ok, current} = ScheduleRunner.current_working(name)
 
-  def stream_jobs(name, {jobs, index}, machines) do
-    stream_jobs(name, index, Map.to_list(jobs), machines, 0)
-  end
-
-  def stream_jobs(name, index, jobs, machines, level) do
-    Task.Supervisor.async_stream(
-      SchedulerWorkerSupervisor,
+    Task.async_stream(
       jobs,
-      &schedule_job(name, index, jobs, &1, machines, level),
+      &schedule_job(name, index, jobs, &1, schedule),
       timeout: :infinity
     )
     |> Enum.to_list()
+    |> Enum.map(fn v ->
+      case v do
+        {:ok, nil} -> nil
+        {:ok, result} -> result
+      end
+    end)
+    |> Enum.filter(&(&1 != nil))
   end
 
-  def schedule_job(name, index, jobs, job, machines, level) do
+  def schedule_job(name, index, jobs, job, machines) do
     rest_of_jobs = List.delete(jobs, job)
 
     SchedulerWorker.schedule(
@@ -31,8 +33,7 @@ defmodule AljawadScheduler.SchedulerWorker do
       index,
       machines,
       job,
-      rest_of_jobs,
-      level
+      rest_of_jobs
     )
   end
 
@@ -41,7 +42,7 @@ defmodule AljawadScheduler.SchedulerWorker do
   So, after the final job got added to the schedule, the schedule will be send
   as a proposed schedule.
   """
-  def schedule(name, index, machines, {job, steps}, [], _) do
+  def schedule(name, index, machines, {job, steps}, []) do
     new_schedule = Scheduler.schedule_job(machines, job, steps)
     ScheduleRunner.set_schedule(name, index, new_schedule)
     ScheduleRunner.increment_performed(name, 1)
@@ -58,36 +59,15 @@ defmodule AljawadScheduler.SchedulerWorker do
   between then is greater than the maximum, then there is no point to continue
   in the search process.
   """
-  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
-      when level < @nested_stream do
+  def schedule(name, index, machines, {job, steps}, remaining_jobs) do
     new_schedule = Scheduler.schedule_job(machines, job, steps)
 
     if should_continue?(name, index, new_schedule, remaining_jobs) do
-      stream_jobs(name, index, remaining_jobs, new_schedule, level + 1)
+      {name, index, remaining_jobs, new_schedule}
     else
       increment_performed(name, index, remaining_jobs)
+      nil
     end
-
-    nil
-  end
-
-  def schedule(name, index, machines, {job, steps}, remaining_jobs, level)
-      when level >= @nested_stream do
-    new_schedule = Scheduler.schedule_job(machines, job, steps)
-
-    if should_continue?(name, index, new_schedule, remaining_jobs) do
-      Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
-        for next <- remaining_jobs do
-          rest_of_jobs = List.delete(remaining_jobs, next)
-          SchedulerWorker.schedule(name, index, new_schedule, next, rest_of_jobs, level + 1)
-        end
-      end)
-      |> Task.await(:infinity)
-    else
-      increment_performed(name, index, remaining_jobs)
-    end
-
-    nil
   end
 
   defp increment_performed(name, index, remaining_jobs) do

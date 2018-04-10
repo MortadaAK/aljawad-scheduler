@@ -8,7 +8,8 @@ defmodule AljawadScheduler.ScheduleRunner do
     Permutation,
     ScheduleRunner,
     SchedulerWorker,
-    SchedulerWorkerSupervisor
+    QueueScheduler
+    # SchedulerWorkerSupervisor
   }
 
   ## ETS
@@ -19,6 +20,11 @@ defmodule AljawadScheduler.ScheduleRunner do
   @spec machines(atom()) :: {:ok, map()} | {:error, :not_found}
   def machines(name) do
     get_value(name, "machines")
+  end
+
+  @spec queue(atom(), integer()) :: {:ok, list()} | {:error, :not_found}
+  def queue(name, index) do
+    get_value(String.to_atom("#{name}_queue"), "queue_#{index}")
   end
 
   @doc """
@@ -93,9 +99,15 @@ defmodule AljawadScheduler.ScheduleRunner do
     get_value(name, "schedule_#{index}")
   end
 
+  @spec current_working(atom()) :: {:ok, integer()} | {:error, :not_found}
+  def current_working(name) do
+    get_value(name, "current_working")
+  end
+
   @doc """
   Returns number of checked possibilities for all groups
   """
+
   @spec performed(atom()) :: {:ok, integer()} | {:error, :not_found}
   def performed(name) do
     get_value(name, "performed")
@@ -178,6 +190,11 @@ defmodule AljawadScheduler.ScheduleRunner do
     set_value(name, "percentage_#{index}", percentage)
   end
 
+  @spec set_current_working(atom(), integer()) :: :ok
+  def set_current_working(name, current_working) do
+    set_value(name, "current_working", current_working)
+  end
+
   @spec set_performed(atom(), integer()) :: :ok
   def set_performed(name, performed) do
     set_value(name, "performed", performed)
@@ -215,6 +232,11 @@ defmodule AljawadScheduler.ScheduleRunner do
     end
   end
 
+  @spec set_queue(atom(), integer(), list()) :: :ok
+  def set_queue(name, index, queue) do
+    set_value(String.to_atom("#{name}_queue"), "queue_#{index}", queue)
+  end
+
   @spec set_machines(atom(), map()) :: :ok
   def set_machines(name, machines) do
     set_value(name, "machines", machines)
@@ -244,6 +266,10 @@ defmodule AljawadScheduler.ScheduleRunner do
     end
   end
 
+  def update_current_working(name, by) when is_integer(by) and is_atom(name) do
+    :ets.update_counter(name, "current_working", by)
+  end
+
   @doc """
   Track total processes performed/skipped
   """
@@ -264,6 +290,14 @@ defmodule AljawadScheduler.ScheduleRunner do
   def setup_table(name, machines, jobs, groups) do
     :ets.new(name, [:named_table, :set, :public, read_concurrency: true, write_concurrency: true])
 
+    :ets.new(String.to_atom("#{name}_queue"), [
+      :named_table,
+      :set,
+      :public,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
     groups
     |> Enum.map(&Enum.count/1)
     |> Enum.map(&Permutation.factorial/1)
@@ -274,6 +308,7 @@ defmodule AljawadScheduler.ScheduleRunner do
     set_machines(name, machines)
     set_jobs(name, jobs)
     set_groups(name, groups)
+    set_current_working(name, 0)
 
     groups
     |> Enum.with_index()
@@ -285,29 +320,6 @@ defmodule AljawadScheduler.ScheduleRunner do
     end)
 
     :ok
-  end
-
-  @doc """
-  Starts the searching process for the optimized schedule. the process will do:
-  1- split the jobs into groups where there will be no machine shared between
-  them.
-  2- build multiple schedules by mapping over jobs by selecting the positions
-  first, 1/4, middle, 3/4, and last one then select the most optimized one.
-  the search.
-  3- start searching for the most optimized one from all possibilities.
-  """
-  @spec start_scheduling(atom()) :: map()
-  def start_scheduling(name) do
-    {:ok, machines} = ScheduleRunner.machines(name)
-    {:ok, groups} = ScheduleRunner.groups(name)
-    set_base_lines(name, groups, machines)
-
-    groups
-    |> Stream.with_index()
-    |> Stream.map(&SchedulerWorker.stream_jobs(name, &1, machines))
-    |> Enum.to_list()
-
-    current_schedule(name)
   end
 
   @doc """
@@ -335,6 +347,65 @@ defmodule AljawadScheduler.ScheduleRunner do
        jobs: jobs,
        name: name
      }}
+  end
+
+  @doc """
+  Starts the searching process for the optimized schedule. the process will do:
+  1- split the jobs into groups where there will be no machine shared between
+  them.
+  2- build multiple schedules by mapping over jobs by selecting the positions
+  first, 1/4, middle, 3/4, and last one then select the most optimized one.
+  the search.
+  3- start searching for the most optimized one from all possibilities.
+  """
+
+  @spec start_scheduling(atom()) :: map()
+  def start_scheduling(name) do
+    {:ok, machines} = ScheduleRunner.machines(name)
+    {:ok, groups} = ScheduleRunner.groups(name)
+    set_base_lines(name, groups, machines)
+
+    queues =
+      groups
+      |> Enum.with_index()
+      |> Enum.map(fn {jobs, index} ->
+        {:ok, queue_scheduler} = QueueScheduler.start_link({Map.to_list(jobs), machines})
+        {index, queue_scheduler}
+      end)
+
+    Task.async_stream(
+      queues,
+      &run_queue(name, &1),
+      timeout: :infinity
+    )
+    |> Enum.to_list()
+
+    current_schedule(name)
+  end
+
+  def run_queue(name, {index, queue_pid}) do
+    {:ok, queue} = QueueScheduler.next(queue_pid, 15000)
+
+    case queue do
+      [] ->
+        nil
+
+      list ->
+        new_list =
+          for {_db_index, {jobs, schedule}} <- list do
+            Task.async(fn ->
+              SchedulerWorker.stream_jobs(name, index, jobs, schedule)
+            end)
+          end
+          |> Enum.map(&Task.await(&1, :infinity))
+          |> List.flatten()
+          |> Enum.map(fn {_, _, jobs, schedule} -> {jobs, schedule} end)
+
+        QueueScheduler.delete(queue_pid, list)
+        QueueScheduler.push(queue_pid, new_list)
+
+        run_queue(name, {index, queue_pid})
+    end
   end
 
   defp check_schedule_and_set(schedule, name, index) do
