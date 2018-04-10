@@ -9,7 +9,9 @@ defmodule AljawadScheduler.ScheduleRunner do
     ScheduleRunner,
     SchedulerWorker,
     SchedulerWorkerSupervisor,
-    SchedulerServer
+    SchedulerServer,
+    SchedulerProducer,
+    SchedulerConsumer
   }
 
   ## ETS
@@ -307,20 +309,51 @@ defmodule AljawadScheduler.ScheduleRunner do
     # |> Stream.with_index()
     # |> Stream.map(&SchedulerWorker.stream_jobs(name, &1, machines))
     # |> Enum.to_list()
+    # groups
+    # |> Enum.map(&Map.to_list/1)
+    # |> Enum.with_index()
+    # |> Enum.map(fn {[job | rest], index} ->
+    #   Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
+    #     {:ok, server} = SchedulerServer.start_link({name, index, machines, job, rest, 0})
+    #     SchedulerServer.register(server)
+
+    #     receive do
+    #       :finished -> nil
+    #     end
+    #   end)
+    # end)
+    # |> Enum.map(&Task.await(&1, :infinity))
     groups
     |> Enum.map(&Map.to_list/1)
     |> Enum.with_index()
     |> Enum.map(fn {[job | rest], index} ->
-      Task.Supervisor.async(SchedulerWorkerSupervisor, fn ->
-        {:ok, server} = SchedulerServer.start_link({name, index, machines, job, rest, 0})
-        SchedulerServer.register(server)
+      {:ok, producer} =
+        GenStage.start_link(SchedulerProducer, {name, index, machines, job, rest, 0})
 
-        receive do
-          :finished -> nil
-        end
-      end)
+      {:ok, consumer01} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer02} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer03} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer04} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer05} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer06} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer07} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer08} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer09} = GenStage.start_link(SchedulerConsumer, :ok)
+      {:ok, consumer10} = GenStage.start_link(SchedulerConsumer, :ok)
+
+      GenStage.sync_subscribe(consumer01, to: producer)
+      GenStage.sync_subscribe(consumer02, to: producer)
+      GenStage.sync_subscribe(consumer03, to: producer)
+      GenStage.sync_subscribe(consumer04, to: producer)
+      GenStage.sync_subscribe(consumer05, to: producer)
+      GenStage.sync_subscribe(consumer06, to: producer)
+      GenStage.sync_subscribe(consumer07, to: producer)
+      GenStage.sync_subscribe(consumer08, to: producer)
+      GenStage.sync_subscribe(consumer09, to: producer)
+      GenStage.sync_subscribe(consumer10, to: producer)
     end)
-    |> Enum.map(&Task.await(&1, :infinity))
+
+    Process.sleep(:infinity)
 
     current_schedule(name)
   end
