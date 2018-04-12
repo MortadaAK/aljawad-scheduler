@@ -155,10 +155,18 @@ defmodule AljawadScheduler.Scheduler do
   index.
   """
   @spec schedule_jobs(map(), list(), integer()) :: map()
-  def schedule_jobs(schedule, jobs, permute \\ 0) do
+  def schedule_jobs(schedule, jobs, permute) do
     jobs
     |> Enum.to_list()
     |> Permutation.create_permutation(permute)
+    |> Enum.reduce(schedule, fn {key, steps}, schedule ->
+      schedule_job(schedule, key, steps)
+    end)
+  end
+
+  def schedule_jobs(schedule, jobs) do
+    jobs
+    |> Enum.to_list()
     |> Enum.reduce(schedule, fn {key, steps}, schedule ->
       schedule_job(schedule, key, steps)
     end)
@@ -169,7 +177,9 @@ defmodule AljawadScheduler.Scheduler do
   """
   @spec get_max(map()) :: integer()
   def get_max(schedule) do
-    Enum.reduce(schedule, 0, fn {_key, {_, hours, _, _}}, current_hours ->
+    schedule
+    |> Enum.to_list()
+    |> Enum.reduce(0, fn {_key, {_, hours, _, _}}, current_hours ->
       max(hours, current_hours)
     end)
   end
@@ -209,7 +219,8 @@ defmodule AljawadScheduler.Scheduler do
     |> convert_to_maps(jobs)
   end
 
-  defp extract_machines(jobs) do
+  @spec extract_machines(list()) :: list()
+  def extract_machines(jobs) do
     Enum.map(jobs, fn {job, operations} ->
       [job, Enum.map(operations, fn {machine, _} -> machine end)]
     end)

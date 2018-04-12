@@ -79,6 +79,74 @@ defmodule AljawadScheduler.PermutationTest do
     end
   end
 
+  describe "expand range" do
+    test "valid?" do
+      assert true == Permutation.valid?(0..0)
+      assert true == Permutation.valid?(12..13)
+      assert true == Permutation.valid?(0..479_001_599)
+      assert true == Permutation.valid?(0..23)
+      assert true == Permutation.valid?(12..17)
+      assert false == Permutation.valid?(0..22)
+      assert false == Permutation.valid?(0..20)
+      assert false == Permutation.valid?(:any_value)
+    end
+
+    test "to_range" do
+      assert {:ok, 0..23} == Permutation.to_range(24)
+      assert {:ok, 0..479_001_599} == Permutation.to_range(479_001_600)
+      assert {:error, :not_valid} == Permutation.to_range(22)
+    end
+
+    test "expand" do
+      assert {:ok, [0..5, 6..11, 12..17, 18..23]} == Permutation.expand(0..23)
+
+      assert {:ok,
+              [
+                0..1,
+                2..3,
+                4..5,
+                6..7,
+                8..9,
+                10..11,
+                12..13,
+                14..15,
+                16..17,
+                18..19,
+                20..21,
+                22..23
+              ]} == Permutation.expand(0..23, 2)
+
+      assert {:ok, [12..13, 14..15, 16..17]} == Permutation.expand(12..17)
+
+      assert {:ok,
+              [
+                12..12,
+                13..13,
+                14..14,
+                15..15,
+                16..16,
+                17..17
+              ]} == Permutation.expand(12..17, 10)
+
+      to = 2_432_902_008_176_639_999
+      assert {:ok, _} = Permutation.expand(0..to)
+      to = 620_448_401_733_239_439_359_999
+      assert {:ok, _} = Permutation.expand(0..to)
+      to = 8_683_317_618_811_886_495_518_194_401_279_999_999
+      assert {:ok, _} = Permutation.expand(0..to)
+      to = 8_683_317_618_811_886_495_518_194_401_279_999_998
+      assert {:error, :not_valid} = Permutation.expand(0..to)
+      assert {:error, :not_valid} == Permutation.expand(0..20)
+    end
+
+    test "base" do
+      assert {:ok, 4} == Permutation.base(0..23, 4)
+      assert {:ok, 4} == Permutation.base(0..23, 5)
+      assert {:ok, 10} == Permutation.base(3_628_800..7_257_599, 12)
+      assert {:error, :not_valid} == Permutation.base(0..23, 3)
+    end
+  end
+
   describe "create permutation" do
     setup do
       {:ok, array: ["a", "b", "c"]}

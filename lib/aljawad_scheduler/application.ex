@@ -9,7 +9,7 @@ defmodule AljawadScheduler.Application do
   def start(_type, _args) do
     # List all child processes to be supervised
     children = [
-      supervisor(Task.Supervisor, [[name: AljawadScheduler.SchedulerWorkerSupervisor]])
+      supervisor(Task.Supervisor, [[name: AljawadScheduler.SchedulerSupervisor]])
 
       # Starts a worker by calling: AljawadScheduler.Worker.start_link(arg)
       # {AljawadScheduler.Worker, arg},

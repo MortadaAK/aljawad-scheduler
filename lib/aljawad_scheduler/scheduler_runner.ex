@@ -7,8 +7,8 @@ defmodule AljawadScheduler.ScheduleRunner do
     Scheduler,
     Permutation,
     ScheduleRunner,
-    SchedulerWorker,
-    SchedulerWorkerSupervisor
+    SchedulerServer,
+    SchedulerSupervisor
   }
 
   ## ETS
@@ -21,6 +21,11 @@ defmodule AljawadScheduler.ScheduleRunner do
     get_value(name, "machines")
   end
 
+  @spec machines(atom(), integer) :: {:ok, map()} | {:error, :not_found}
+  def machines(name, index) do
+    get_value(name, "machines_#{index}")
+  end
+
   @doc """
   returns the all jobs that is going to be scheduled.
   """
@@ -29,12 +34,22 @@ defmodule AljawadScheduler.ScheduleRunner do
     get_value(name, "jobs")
   end
 
+  @spec jobs(atom(), integer()) :: {:ok, map()} | {:error, :not_found}
+  def jobs(name, index) do
+    get_value(name, "jobs_#{index}")
+  end
+
   @doc """
   returns the list of grouped jobs that is going to be scheduled separately.
   """
   @spec groups(atom()) :: {:ok, list(map())} | {:error, :not_found}
   def groups(name) do
     get_value(name, "groups")
+  end
+
+  @spec group(atom(), integer()) :: {:ok, list(map())} | {:error, :not_found}
+  def group(name, index) do
+    get_value(name, "group_#{index}")
   end
 
   @doc """
@@ -220,14 +235,29 @@ defmodule AljawadScheduler.ScheduleRunner do
     set_value(name, "machines", machines)
   end
 
+  @spec set_machines(atom(), integer(), map()) :: :ok
+  def set_machines(name, index, machines) do
+    set_value(name, "machines_#{index}", machines)
+  end
+
   @spec set_jobs(atom(), list()) :: :ok
   def set_jobs(name, jobs) do
     set_value(name, "jobs", jobs)
   end
 
+  @spec set_jobs(atom(), integer(), list()) :: :ok
+  def set_jobs(name, index, jobs) do
+    set_value(name, "jobs_#{index}", jobs)
+  end
+
   @spec set_groups(atom(), list()) :: :ok
   def set_groups(name, groups) do
     set_value(name, "groups", groups)
+  end
+
+  @spec set_group(atom(), integer(), list()) :: :ok
+  def set_group(name, index, groups) do
+    set_value(name, "group_#{index}", groups)
   end
 
   @spec set_value(atom(), String.t(), any()) :: :ok
@@ -278,9 +308,21 @@ defmodule AljawadScheduler.ScheduleRunner do
     groups
     |> Enum.with_index()
     |> Enum.each(fn {group, index} ->
+      machines_list =
+        Scheduler.extract_machines(group)
+        |> Enum.map(fn [_, machines] -> machines end)
+        |> List.flatten()
+
+      schedule =
+        machines
+        |> Enum.filter(fn {machine, _} -> Enum.member?(machines_list, machine) end)
+        |> Map.new()
+
       set_max(name, index, 100_000_000)
       set_wight(name, index, 100_000_000)
       set_performed(name, index, 0)
+      set_machines(name, index, schedule)
+      set_group(name, index, Enum.to_list(group))
       set_total(name, index, Permutation.factorial(Enum.count(group)))
     end)
 
@@ -303,11 +345,37 @@ defmodule AljawadScheduler.ScheduleRunner do
     set_base_lines(name, groups, machines)
 
     groups
-    |> Stream.with_index()
-    |> Stream.map(&SchedulerWorker.stream_jobs(name, &1, machines))
-    |> Enum.to_list()
+    |> Enum.with_index()
+    |> Enum.map(fn {group, index} ->
+      0..(Permutation.factorial(Enum.count(group)) - 1)
+      |> Permutation.expand(2)
+      |> (fn {:ok, ranges} -> ranges end).()
+      |> Enum.map(fn range = first.._last ->
+        {:ok, pid} =
+          SchedulerServer.start_link(%{
+            name: name,
+            index: index,
+            receiver: self()
+          })
+
+        SchedulerServer.add_ranges(pid, [range])
+        SchedulerServer.start_scheduling(pid)
+        pid
+      end)
+    end)
+    |> List.flatten()
+    |> loop()
 
     current_schedule(name)
+  end
+
+  def loop([]), do: nil
+
+  def loop(pids) do
+    receive do
+      {:finished, pid} ->
+        loop(pids -- [pid])
+    end
   end
 
   @doc """
@@ -364,33 +432,14 @@ defmodule AljawadScheduler.ScheduleRunner do
     groups
     |> Enum.with_index()
     |> Enum.each(fn {group, group_index} ->
-      size = Permutation.factorial(Enum.count(group)) - 1
+      new_schedule =
+        Scheduler.schedule_jobs(
+          machines,
+          group,
+          0
+        )
 
-      Enum.reduce(1..(Enum.count(group) - 1), nil, fn i, selected ->
-        [
-          i * size,
-          i * size + div(size, 4),
-          i * size + div(size, 2),
-          i * size + div(size * 3, 4),
-          (i + 1) * size - 1
-        ]
-        |> Enum.reduce(selected, fn index, selected ->
-          new_schedule =
-            Scheduler.schedule_jobs(
-              machines,
-              group,
-              index
-            )
-
-          case set_schedule(name, group_index, new_schedule) do
-            {:ok, schedule} ->
-              schedule
-
-            _ ->
-              selected
-          end
-        end)
-      end)
+      set_schedule(name, group_index, new_schedule)
     end)
   end
 end
