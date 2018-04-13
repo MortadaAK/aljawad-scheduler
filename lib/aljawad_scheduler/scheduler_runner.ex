@@ -124,6 +124,16 @@ defmodule AljawadScheduler.ScheduleRunner do
     get_value(name, "performed_#{index}")
   end
 
+  @spec most_optimal(atom(), integer()) :: {:ok, integer()} | {:error, :not_found}
+  def most_optimal(name, index) do
+    get_value(name, "most_optimal_#{index}")
+  end
+
+  @spec percentage(atom(), integer()) :: {:ok, integer()} | {:error, :not_found}
+  def percentage(name, index) do
+    get_value(name, "percentage_#{index}")
+  end
+
   @doc """
   Sets the maximum number of running hours/minutes for the most optimized schedule
   """
@@ -203,6 +213,11 @@ defmodule AljawadScheduler.ScheduleRunner do
     set_value(name, "performed_#{index}", performed)
   end
 
+  @spec set_performed(atom(), integer(), integer()) :: :ok
+  def set_most_optimal(name, index, time) when is_atom(name) and is_integer(index) do
+    set_value(name, "most_optimal_#{index}", time)
+  end
+
   @doc """
   Checks the new schedule is more optimized more than the previous one, if so, it set it otherwise will discard it.
   the checking process is:
@@ -216,10 +231,12 @@ defmodule AljawadScheduler.ScheduleRunner do
   def set_schedule(name, index, schedule) when is_atom(name) and is_integer(index) do
     case check_schedule_and_set(schedule, name, index) do
       {:ok, schedule, max, wight} ->
+        {:ok, optimal} = most_optimal(name, index)
+
         IO.puts(
-          "#{Time.to_string(Time.utc_now())} Did change schedule(#{index}) period to #{max} and wight to #{
-            wight
-          }"
+          "#{Time.to_string(Time.utc_now())} Did change schedule(#{index} - #{optimal} hours) period to #{
+            max
+          } and wight to #{wight}"
         )
 
         {:ok, schedule}
@@ -318,12 +335,14 @@ defmodule AljawadScheduler.ScheduleRunner do
         |> Enum.filter(fn {machine, _} -> Enum.member?(machines_list, machine) end)
         |> Map.new()
 
+      jobs_list = Enum.to_list(group)
       set_max(name, index, 100_000_000)
       set_wight(name, index, 100_000_000)
       set_performed(name, index, 0)
       set_machines(name, index, schedule)
-      set_group(name, index, Enum.to_list(group))
+      set_group(name, index, jobs_list)
       set_total(name, index, Permutation.factorial(Enum.count(group)))
+      set_most_optimal(name, index, Scheduler.max_min_remaining(schedule, jobs_list))
     end)
 
     :ok
@@ -348,17 +367,19 @@ defmodule AljawadScheduler.ScheduleRunner do
     |> Enum.with_index()
     |> Enum.map(fn {group, index} ->
       0..(Permutation.factorial(Enum.count(group)) - 1)
-      |> Permutation.expand(2)
+      |> Permutation.expand(1)
       |> (fn {:ok, ranges} -> ranges end).()
-      |> Enum.map(fn range = first.._last ->
+      |> Enum.with_index()
+      |> Enum.map(fn {range = first.._last, sup_index} ->
         {:ok, pid} =
           SchedulerServer.start_link(%{
             name: name,
             index: index,
-            receiver: self()
+            receiver: self(),
+            concurrent: 50_000,
+            starting_range: range
           })
 
-        SchedulerServer.add_ranges(pid, [range])
         SchedulerServer.start_scheduling(pid)
         pid
       end)
@@ -375,6 +396,10 @@ defmodule AljawadScheduler.ScheduleRunner do
     receive do
       {:finished, pid} ->
         loop(pids -- [pid])
+    after
+      10 * 60 * 1000 ->
+        Enum.each(pids, &SchedulerServer.stop_scheduling/1)
+        loop(pids)
     end
   end
 

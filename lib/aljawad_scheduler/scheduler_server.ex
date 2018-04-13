@@ -3,10 +3,10 @@ defmodule AljawadScheduler.SchedulerServer do
 
   alias AljawadScheduler.{
     SchedulerTask,
+    ScheduleRunner,
     SchedulerSupervisor
   }
 
-  @concurrent 25000
   @query [
     {
       ### THIS LINE CHANGED
@@ -24,7 +24,9 @@ defmodule AljawadScheduler.SchedulerServer do
   def init(%{
         name: name,
         index: index,
-        receiver: receiver
+        receiver: receiver,
+        concurrent: concurrent,
+        starting_range: range
       }) do
     queue =
       :ets.new(:scheduling_queue, [
@@ -34,12 +36,17 @@ defmodule AljawadScheduler.SchedulerServer do
         write_concurrency: true
       ])
 
+    add_range(queue, range)
+
     {:ok,
      %{
        receiver: receiver,
        queue: queue,
+       concurrent: concurrent,
        name: name,
-       index: index
+       index: index,
+       running: 0,
+       stop: false
      }}
   end
 
@@ -47,82 +54,92 @@ defmodule AljawadScheduler.SchedulerServer do
     GenServer.cast(pid, {:add_ranges, ranges})
   end
 
-  def start_scheduling(pid) do
-    GenServer.cast(pid, {:start_scheduling})
+  def stop_scheduling(pid) when is_pid(pid) do
+    GenServer.cast(pid, :stop)
   end
 
-  def handle_info(:finished, state = %{receiver: receiver, queue: queue}) do
-    if ets_count(queue) == 0 do
-      send(self(), :stop)
+  def start_scheduling(pid) do
+    Process.send(pid, :run, [])
+  end
+
+  def add_range(queue, range = first..last) do
+    :ets.insert(queue, {{last - first, range}})
+  end
+
+  def handle_info(:finished, state = %{receiver: receiver, running: 0, stop: true}) do
+    send(receiver, {:finished, self()})
+    {:stop, :normal, state}
+  end
+
+  def handle_info(:finished, state = %{receiver: receiver, name: name, index: index}) do
+    {:ok, percentage} = ScheduleRunner.percentage(name, index)
+
+    if percentage == 1.0 do
       send(receiver, {:finished, self()})
       {:stop, :normal, state}
     else
-      {:noreply, state}
+      {:noreply, schedule(state)}
     end
   end
 
   def handle_info(:run, state) do
-    schedule_run()
     {:noreply, schedule(state)}
   end
 
-  def handle_cast({:start_scheduling}, state) do
-    schedule_run()
+  def handle_info({_pid, nil}, state = %{running: running}) do
+    {:noreply, Map.put(state, :running, running - 1)}
+  end
+
+  def handle_info(
+        {:DOWN, _from_pid, :process, _pid, :normal},
+        state = %{running: running}
+      )
+      when running < 1 do
     {:noreply, schedule(state)}
   end
 
-  def handle_cast(
-        {:add_ranges, ranges},
-        state = %{queue: queue, name: name, index: index}
-      ) do
-    schedule_ranges(name, index, queue, ranges)
-
-    {
-      :noreply,
-      schedule(state)
-    }
+  def handle_info({:DOWN, _from_pid, :process, _pid, :normal}, state) do
+    {:noreply, state}
   end
 
-  defp schedule_run() do
-    Process.send_after(self(), :run, 700)
+  def handle_cast(:stop, state) do
+    {:noreply, Map.put(state, :stop, true)}
   end
 
   defp schedule(
          state = %{
            queue: queue,
-           name: name,
-           index: index
+           concurrent: concurrent
          }
        ) do
-    running()
+    current_running = running()
+    count = max(concurrent - current_running, 0)
 
-    count = @concurrent - running()
-
-    case next_ranges(queue, count) do
-      {[], _queue, 0} ->
-        # IO.puts("waiting for ranges to run #{running}/#{concurrent}")
-        nil
-
-      {[], _queue, _} ->
-        Process.send_after(self(), :finished, 750)
-        state
-
-      {ranges, queue, _} ->
-        schedule_ranges(name, index, queue, ranges)
-
-        state
-        |> Map.put(:queue, queue)
-    end
+    queue
+    |> next_ranges(count)
+    |> (&schedule_ranges(state, &1)).()
   end
 
-  def running() do
+  defp running() do
     Supervisor.count_children(SchedulerSupervisor).active
   end
 
-  def schedule_ranges(name, index, queue, ranges) do
-    # to stop sending a notification back from the supervisor
+  defp schedule_ranges(state = %{stop: true}, _) do
+    Process.send(self(), :finished, [])
+    state
+  end
+
+  defp schedule_ranges(state, []) do
+    Process.send(self(), :finished, [])
+    state
+  end
+
+  defp schedule_ranges(
+         state = %{name: name, index: index, queue: queue, running: running},
+         ranges
+       ) do
     for range <- ranges do
-      Task.Supervisor.start_child(
+      Task.Supervisor.async(
         SchedulerSupervisor,
         SchedulerTask,
         :run,
@@ -135,9 +152,12 @@ defmodule AljawadScheduler.SchedulerServer do
         restart: :transient
       )
     end
+
+    state
+    |> Map.put(:running, running + Enum.count(ranges))
   end
 
-  defp next_ranges(queue, count) when count < 1, do: {[], queue, count}
+  defp next_ranges(_queue, count) when count < 1, do: []
 
   defp next_ranges(queue, count) do
     ranges =
@@ -147,17 +167,13 @@ defmodule AljawadScheduler.SchedulerServer do
 
         {ranges, _} ->
           ranges
-          |> Enum.map(fn {range} ->
-            :ets.delete(queue, range)
-
-            case range do
-              {_size, range} -> range
-              range -> range
-            end
+          |> Enum.map(fn {record = {_size, range}} ->
+            :ets.delete(queue, record)
+            range
           end)
       end
 
-    {ranges, queue, count}
+    ranges
   end
 
   defp ets_count(queue) do

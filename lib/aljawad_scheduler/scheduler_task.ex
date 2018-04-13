@@ -18,7 +18,7 @@ defmodule AljawadScheduler.SchedulerTask do
 
     scheduled_jobs =
       jobs
-      |> Enum.take(count - base + 1)
+      |> Enum.take(count - base)
 
     remaining_jobs =
       jobs
@@ -34,6 +34,8 @@ defmodule AljawadScheduler.SchedulerTask do
       scheduled_jobs,
       remaining_jobs
     )
+
+    nil
   end
 
   @doc """
@@ -87,11 +89,8 @@ defmodule AljawadScheduler.SchedulerTask do
   end
 
   defp add_ranges(queue, ranges) do
-    Enum.each(ranges, fn range = start..finish ->
-      # ordered_set
-      :ets.insert(queue, {{finish - start, range}})
-      # set
-      # :ets.insert(queue, {range})
+    Enum.each(ranges, fn range ->
+      SchedulerServer.add_range(queue, range)
     end)
   end
 
@@ -103,7 +102,7 @@ defmodule AljawadScheduler.SchedulerTask do
       first,
       first + div(size, 6),
       first + div(size, 3),
-      first + div(size * 3, 6),
+      first + div(size, 2),
       first + div(size * 2, 3),
       first + div(size * 5, 6),
       last
