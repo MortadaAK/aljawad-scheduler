@@ -391,7 +391,6 @@ defmodule AljawadScheduler.ScheduleRunner do
 
   def loop([]), do: nil
 
-
   def loop(pids) do
     # we are going to kill the scheduler after 10 minutes since usually we will
     # get an acceptable schedule that minimize the total running hours for all
