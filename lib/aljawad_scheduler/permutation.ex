@@ -68,4 +68,103 @@ defmodule AljawadScheduler.Permutation do
   @spec normalize(List.t()) :: List.t()
   def normalize([nil | rest]), do: rest
   def normalize(array), do: array
+
+  @doc """
+  checks if the number is a factorial. if so will generate range from `0` to the `factorial - 1` otherwise will respond with `:not_valid`
+  """
+  @spec to_range(number) :: {:ok, Range.t()} | {:error, :not_valid}
+  def to_range(number) when is_integer(number) do
+    case reduce(number) do
+      :not_valid -> {:error, :not_valid}
+      _base -> {:ok, 0..(number - 1)}
+    end
+  end
+
+  @doc """
+  Expand a range into sub ranges with size of the permutation of the previous
+  factorial
+  """
+  def expand(first..last), do: expand(first..last, 1)
+
+  def expand(first.._last, _levels) when first < 0 do
+    {:error, :not_valid}
+  end
+
+  def expand(first..last, _levels) when first > last do
+    {:error, :not_valid}
+  end
+
+  def expand(first..last, _levels) when first == last do
+    {:ok, [first..last]}
+  end
+
+  def expand(first..last, levels) when first < last do
+    # get the size of the range
+    # get the base of the factorial and use the one previous to it
+    # get number of ranges that can be generated
+
+    if valid?(first..last) do
+      size = last - first + 1
+      base = reduce(size)
+      width = factorial(max(base - levels, 1))
+
+      Stream.cycle(1..2)
+      |> Enum.reduce_while({[], first}, fn _, {ranges, current} ->
+        from = current
+        to = current + width - 1
+        ranges = [ranges | [from..to]] |> List.flatten()
+        result = {ranges, to + 1}
+        if to >= last, do: {:halt, result}, else: {:cont, result}
+      end)
+      |> (fn {ranges, _} -> {:ok, ranges} end).()
+    else
+      {:error, :not_valid}
+    end
+  end
+
+  def base(first..last, size) do
+    if valid?(first..last) do
+      case reduce(last - first + 1) do
+        :not_valid ->
+          {:error, :not_valid}
+
+        base ->
+          if base > size, do: {:error, :not_valid}, else: {:ok, base}
+      end
+    else
+      {:error, :not_valid}
+    end
+  end
+
+  @doc """
+  Check if the range size is equals to a factorial
+  """
+  @spec valid?(Range.t()) :: boolean()
+  def valid?(first..last) when first == last, do: true
+  def valid?(first..last) when first + 1 == last, do: true
+  def valid?(first..last) when last < first, do: false
+
+  def valid?(first..last) when first < last do
+    size = last - first + 1
+
+    reduce(size, 2) != :not_valid
+  end
+
+  def valid?(_), do: false
+
+  defp reduce(size, base \\ 2) do
+    cond do
+      size < 1 ->
+        :not_valid
+
+      size == 1 ->
+        base - 1
+
+      true ->
+        reduce(
+          div(size, base),
+          base + 1
+        )
+    end
+  end
 end

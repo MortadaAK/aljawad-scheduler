@@ -1,7 +1,7 @@
 defmodule AljawadScheduler.ScheduleRunnerTest do
   use ExUnit.Case
 
-  alias AljawadScheduler.ScheduleRunner
+  alias AljawadScheduler.{ScheduleRunner, SchedulerWorker}
 
   setup do
     machines = %{m1: 10, m2: 5, m3: 0, m4: 15}
@@ -61,6 +61,10 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
     assert {:ok, 0} = ScheduleRunner.performed(name)
     assert {:ok, _} = ScheduleRunner.wight(name, 0)
     assert {:ok, _} = ScheduleRunner.max(name, 0)
+    assert {:ok, [_]} = ScheduleRunner.groups(name)
+    assert {:ok, _} = ScheduleRunner.group(name, 0)
+    assert {:ok, %{}} = ScheduleRunner.machines(name)
+    assert {:ok, %{}} = ScheduleRunner.machines(name, 0)
   end
 
   test "should update performed", args = %{name: name} do
@@ -73,39 +77,15 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
   test "initialize with first schedule", args = %{name: name} do
     assert {:ok, _} = ScheduleRunner.init(args)
 
-    assert {:ok, 25} = ScheduleRunner.max(name, 0)
+    assert {:ok, 27} = ScheduleRunner.max(name, 0)
 
     assert {:ok,
             %{
-              m1: {[s: 10, j4: 2, j1: 2, j2: 3], 17, 0, 0},
-              m2: {[s: 5, j3: 2, l: 5, j4: 2, j1: 2], 16, 5, 0},
-              m3: {[s: 0, l: 7, j3: 4, l: 3, j4: 1, l: 2, j2: 6], 23, 12, 0},
-              m4: {[s: 15, w: 4, j3: 1, w: 1, j4: 1, w: 1, j1: 6, j2: 2], 25, 0, 6}
+              m1: {[s: 10, j1: 2, j2: 3, j4: 2], 17, 0, 0},
+              m2: {[s: 5, l: 7, j1: 2, j3: 2, l: 1, j4: 2], 19, 8, 0},
+              m3: {[s: 0, l: 15, j2: 6, w: 5, j3: 4, w: 6, j4: 1], 26, 15, 11},
+              m4: {[s: 15, w: 1, j1: 6, j2: 2, l: 2, j3: 1, j4: 1], 27, 2, 1}
             }} = ScheduleRunner.current_schedule(name, 0)
-  end
-
-  test "filter machines based on a list of jobs" do
-    machines = %{m1: 10, m2: 5, m3: 0, m4: 15, m5: 5, m6: 2, m7: 20, m8: 5}
-
-    jobs = %{
-      j1: [m1: 2, m2: 2, m4: 6],
-      j2: [m1: 3, m3: 6, m4: 2]
-    }
-
-    assert %{m1: 10, m2: 5, m3: 0, m4: 15} = ScheduleRunner.filter_machines(machines, jobs)
-  end
-
-  test "cannot set schedule that is not optimized", args = %{name: name} do
-    new_schedule = %{
-      m1: {[s: 10, j4: 2, j1: 2, j2: 3], 17, 0, 0},
-      m2: {[s: 5, j3: 2, l: 5, j4: 2, j1: 2], 16, 5, 0},
-      m3: {[s: 0, l: 7, j3: 4, l: 3, j4: 1, l: 2, j2: 6], 23, 12, 0},
-      m4: {[s: 15, w: 4, j3: 1, w: 1, j4: 1, w: 1, j1: 6, j2: 2], 25, 0, 6}
-    }
-
-    assert {:ok, _} = ScheduleRunner.init(args)
-    ScheduleRunner.current_schedule(name)
-    assert {:did_not_changed, _} = ScheduleRunner.set_schedule(name, 0, new_schedule)
   end
 
   test "schedule all" do
@@ -123,12 +103,12 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
     {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: :schedule123})
 
     assert %{
-             m1: {[s: 10, j4: 2, j1: 2, j2: 3, j5: 4], 21, 0, 0},
-             m2: {[s: 5, j3: 2, l: 5, j4: 2, j1: 2], 16, 5, 0},
-             m3: {[s: 0, j6: 6, l: 1, j3: 4, l: 3, j4: 1, l: 2, j2: 6, l: 10, j5: 16], 49, 16, 0},
+             m1: {[s: 10, j2: 3, j1: 2, j4: 2, j5: 4], 21, 0, 0},
+             m2: {[s: 5, l: 10, j1: 2, j3: 2, w: 2, j4: 2], 21, 10, 2},
+             m3: {[s: 0, j6: 6, l: 7, j2: 6, j3: 4, w: 2, j4: 1, l: 9, j5: 16], 49, 16, 2},
              m4:
-               {[s: 15, w: 9, j6: 12, w: 16, j3: 1, w: 13, j4: 1, w: 13, j1: 6, w: 12, j2: 2], 37,
-                0, 63},
+               {[s: 15, w: 9, j6: 12, w: 8, j2: 2, w: 12, j1: 6, w: 12, j3: 1, w: 12, j4: 1], 37,
+                0, 53},
              m5: {[s: 5, l: 22, j6: 16], 43, 22, 0},
              m6: {[s: 2, l: 19, j5: 12], 33, 19, 0},
              m7: {[s: 20, l: 23, j6: 6, j5: 6], 55, 23, 0}
@@ -149,7 +129,7 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
 
     name = :schedule123
     {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: name})
-    assert ScheduleRunner.start_scheduling(name)
+    assert :timer.tc(fn -> ScheduleRunner.start_scheduling(name) end) |> IO.inspect()
 
     assert {:ok,
             [
@@ -188,28 +168,101 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
 
     jobs = %{
       j1: [m1: 2, m2: 2, m4: 6],
-      j2: [m1: 6, m3: 6, m4: 2],
-      j3: [m2: 2, m3: 4, m4: 1],
-      j4: [m1: 4, m2: 2, m3: 1, m4: 1],
-      j5: [m1: 4, m6: 12, m3: 16, m7: 6],
-      j6: [m3: 6, m4: 12, m5: 10, m7: 6],
-      j7: [m2: 3, m4: 5, m7: 10, m6: 7],
-      j8: [m1: 12, m4: 5, m7: 10, m6: 6],
-      j9: [m1: 3, m2: 15, m5: 14, m7: 15],
-      j10: [m1: 3, m4: 5, m6: 10, m7: 8],
-      j11: [m1: 13, m2: 6, m4: 5, m3: 5, m6: 10, m7: 6],
-      j12: [m2: 3, m2: 3, m4: 5, m3: 15, m7: 6],
-      j13: [m2: 12, m3: 5, m4: 10, m7: 8],
-      j14: [m1: 6, m2: 6, m3: 12, m4: 12, m5: 6],
-      j15: [m2: 6, m4: 10, m5: 8, m6: 6, m7: 6],
-      j16: [m1: 6, m2: 5, m3: 9, m4: 4, m7: 6],
+      # j2: [m1: 6, m3: 6, m4: 2],
+      # j3: [m2: 2, m3: 4, m4: 1],
+      # j4: [m1: 4, m2: 2, m3: 1, m4: 1],
+      # j5: [m1: 4, m6: 12, m3: 16, m7: 6],
+      # j6: [m3: 6, m4: 12, m5: 10, m7: 6],
+      # j7: [m2: 3, m4: 5, m7: 10, m6: 7],
+      # j8: [m1: 12, m4: 5, m7: 10, m6: 6],
+      # j9: [m1: 3, m2: 15, m5: 14, m7: 15],
+      # j10: [m1: 3, m4: 5, m6: 10, m7: 8],
+      # j11: [m1: 13, m2: 6, m4: 5, m3: 5, m6: 10, m7: 6],
+      # j12: [m2: 3, m2: 3, m4: 5, m3: 15, m7: 6],
+      # j13: [m2: 12, m3: 5, m4: 10, m7: 8],
+      # j14: [m1: 6, m2: 6, m3: 12, m4: 12, m5: 6],
+      # j15: [m2: 6, m4: 10, m5: 8, m6: 6, m7: 6],
+      # j16: [m1: 6, m2: 5, m3: 9, m4: 4, m7: 6],
       j17: [m1: 4, m2: 9, m3: 10, m4: 14, m5: 12]
     }
 
     :observer.start()
     {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: :schedule123})
 
-    assert _ = ScheduleRunner.start_scheduling(:schedule123) |> IO.inspect()
+    assert _ = ScheduleRunner.start_scheduling(:schedule123)
+  end
+
+  @tag timeout: :infinity
+  test "real example 1" do
+    machines = %{}
+
+    jobs = %{
+      j25731: [m2103: 35, m2225: 23, m2913: 10, m2310: 10, m2405: 17],
+      j26127: [m2103: 5, m2411: 6, m2222: 4, m2508: 4],
+      j25949: [m11002: 1],
+      j26076: [m2103: 3, m2405: 2, m2222: 2],
+      j25631: [m2103: 2, m2411: 3, m2222: 2, m2503: 9],
+      j25931: [m2103: 1, m2225: 2, m2912: 2, m2304: 2, m2409: 3],
+      j26025: [m10002: 1],
+      j26070: [m2103: 3, m2406: 2, m2222: 2, m2502: 3],
+      j25669: [m2222: 2, m2502: 3, m2411: 3],
+      j25895: [m12501: 14, m12502: 5],
+      j26012: [m2103: 1, m2502: 3, m2406: 2],
+      j25733: [m2103: 8, m2225: 5, m2913: 4, m2310: 7, m2409: 13],
+      j25926: [m2105: 5, m2225: 3, m2103: 5, m2301: 8, m2411: 7, m2508: 7],
+      j26039: [m2105: 121, m2907: 40, m2219: 11],
+      j25829: [m2103: 1, m2405: 2, m2222: 2, m2503: 6],
+      j26153: [m10002: 1],
+      j25906: [m2105: 4, m2904: 6, m2214: 2],
+      j25824: [m2103: 3, m2409: 4, m2222: 3, m2502: 3],
+      j25553: [m2105: 4, m2106: 22, m2219: 17],
+      j26038: [m2105: 41, m2411: 29, m2103: 61, m2411: 8],
+      j26071: [m2103: 2, m2405: 2, m2222: 3, m2502: 3],
+      j25828: [m2105: 1, m2904: 3, m2214: 2],
+      j25735: [m2105: 4, m2225: 3, m2103: 4, m2301: 6, m2411: 5, m2508: 6],
+      j25632: [m2105: 2, m2222: 2, m2103: 2, m2301: 3, m2411: 3, m2508: 4],
+      j25934: [m11002: 1, m15101: 1, m12104: 1],
+      j26090: [m2103: 11, m2409: 12],
+      j24895: [m12501: 3, m12502: 7],
+      j25732: [m2103: 8, m2225: 6, m2913: 12, m2310: 9, m2405: 19],
+      j26020: [m2103: 1, m2222: 2, m2913: 2, m2310: 2, m2405: 2],
+      j25759: [m2103: 1, m2222: 2, m2912: 2, m2304: 2, m2406: 2],
+      j25546: [m2105: 1, m2906: 3, m2214: 2],
+      j25712: [m11002: 2, m12201: 2, m12106: 1, m13102: 2],
+      j26021: [m11002: 1, m12105: 4],
+      j26069: [m2103: 5, m2405: 5, m2225: 3, m2508: 5],
+      j25830: [m2105: 1, m2103: 1, m2105: 1, m2225: 2, m2411: 3, m2811: 35, m2821: 23],
+      j26122: [m2105: 7, m2309: 4, m2103: 4, m2223: 17, m2402: 32],
+      j25970: [m2103: 2, m2309: 4, m2222: 3, m2405: 3],
+      j26159: [m10002: 1],
+      j26118: [m2103: 1, m2411: 2, m2225: 1, m2509: 10],
+      j26036: [m2105: 15, m2103: 15],
+      j25971: [m2105: 1, m2904: 3, m2214: 3],
+      j25827: [m2105: 1, m2906: 3, m2214: 2],
+      j25364: [m2103: 2, m2301: 3, m2222: 2, m2411: 3, m2303: 3, m2503: 3],
+      j25761: [m11002: 1, m15101: 2, m12104: 2],
+      j25915: [m11002: 1, m12105: 11],
+      j24976: [m12501: 2, m12502: 4],
+      j26066: [m2105: 7, m2309: 12, m2103: 7, m2223: 31, m2405: 62],
+      j25908: [m2103: 1, m2411: 3, m2222: 2, m2509: 12],
+      j25954: [m2103: 2, m2310: 3, m2913: 3, m2403: 3, m2403: 3, m2511: 3],
+      j26041: [m2103: 5, m2406: 6, m2225: 3, m2502: 5],
+      j25911: [m2105: 2, m2904: 6, m2214: 4],
+      j26108: [m2103: 1, m2409: 1, m2222: 1],
+      j26031: [m2103: 11, m2411: 12, m2222: 7, m2508: 12],
+      j25912: [m10002: 1],
+      j24897: [m11002: 1],
+      j25503: [m2103: 2, m2301: 3, m2222: 2, m2411: 3, m2303: 6, m2502: 4],
+      j25850: [m2103: 1, m2301: 2, m12101: 3, m2406: 3, m2508: 2],
+      j25513: [m2103: 2, m2411: 3, m2222: 2, m2502: 4],
+      j26064: [m2103: 1, m2222: 2, m2912: 2, m2304: 2, m2406: 3],
+      j26013: [m2103: 1, m2406: 2, m2222: 2, m2502: 3]
+    }
+
+    :observer.start()
+    {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: :schedule123})
+
+    assert _ = ScheduleRunner.start_scheduling(:schedule123)
   end
 
   @tag timeout: :infinity
@@ -250,16 +303,16 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
     }
 
     jobs = %{
-      j25117: [m31: 62, m29: 62],
-      j23903: [m31: 35, m29: 35],
-      j24675: [m31: 482, m29: 482],
-      j22975: [m31: 425, m29: 213],
-      j25185: [m31: 32, m29: 32],
-      j25029: [m31: 122, m29: 122],
-      j25118: [m31: 93, m29: 93],
-      j25134: [m29: 62, m24: 93],
-      j25021: [m66: 360, m48: 845],
-      j24719: [m4: 3263, m31: 350, m3: 1981],
+      # j25117: [m31: 62, m29: 62],
+      # j23903: [m31: 35, m29: 35],
+      # j24675: [m31: 482, m29: 482],
+      # j22975: [m31: 425, m29: 213],
+      # j25185: [m31: 32, m29: 32],
+      # j25029: [m31: 122, m29: 122],
+      # j25118: [m31: 93, m29: 93],
+      # j25134: [m29: 62, m24: 93],
+      # j25021: [m66: 360, m48: 845],
+      # j24719: [m4: 3263, m31: 350, m3: 1981],
       # j25017: [m30: 365, m31: 61, m44: 304],
       # j25425: [m29: 663, m66: 301, m20: 783],
       # j25022: [m29: 182, m66: 122, m20: 244],
@@ -268,7 +321,7 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
       # j25102: [m31: 61, m2: 213, m7: 334],
       # j25150: [m29: 44, m24: 65, m18: 87],
       # j25153: [m29: 541, m24: 390, m18: 725],
-      # j25088: [m10: 7200, m31: 603, m3: 1502],
+      j25088: [m10: 7200, m31: 603, m3: 1502],
       j25155: [m29: 315, m24: 476, m48: 845],
       j25532: [m29: 362, m24: 242, m48: 423, m36: 242],
       j24672: [m66: 599, m48: 1714, m33: 1374, m37: 13736],
@@ -286,8 +339,10 @@ defmodule AljawadScheduler.ScheduleRunnerTest do
     }
 
     :observer.start()
-    {:ok, _} = ScheduleRunner.init(%{machines: machines, jobs: jobs, name: :schedule123})
-
-    assert {:ok, _} = ScheduleRunner.start_scheduling(:schedule123) |> IO.inspect()
+    name = :schedule123
+    ScheduleRunner.init(%{machines: machines, jobs: jobs, name: name})
+    ScheduleRunner.groups(name)
+    # assert {:ok, _} =
+    ScheduleRunner.start_scheduling(name)
   end
 end
