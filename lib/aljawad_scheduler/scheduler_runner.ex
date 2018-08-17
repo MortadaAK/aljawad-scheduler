@@ -367,16 +367,15 @@ defmodule AljawadScheduler.ScheduleRunner do
     |> Enum.with_index()
     |> Enum.map(fn {group, index} ->
       0..(Permutation.factorial(Enum.count(group)) - 1)
-      |> Permutation.expand(1)
+      |> Permutation.expand(2)
       |> (fn {:ok, ranges} -> ranges end).()
-      |> Enum.with_index()
-      |> Enum.map(fn {range = first.._last, sup_index} ->
+      |> Enum.map(fn range ->
         {:ok, pid} =
           SchedulerServer.start_link(%{
             name: name,
             index: index,
             receiver: self(),
-            concurrent: 50_000,
+            concurrent: 250,
             starting_range: range
           })
 
@@ -392,7 +391,11 @@ defmodule AljawadScheduler.ScheduleRunner do
 
   def loop([]), do: nil
 
+
   def loop(pids) do
+    # we are going to kill the scheduler after 10 minutes since usually we will
+    # get an acceptable schedule that minimize the total running hours for all
+    # machines with minimum waiting and lagging time
     receive do
       {:finished, pid} ->
         loop(pids -- [pid])

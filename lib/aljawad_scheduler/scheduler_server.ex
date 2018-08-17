@@ -63,7 +63,7 @@ defmodule AljawadScheduler.SchedulerServer do
   end
 
   def add_range(queue, range = first..last) do
-    :ets.insert(queue, {{last - first, range}})
+    :ets.insert(queue, {{first - last, range}})
   end
 
   def handle_info(:finished, state = %{receiver: receiver, running: 0, stop: true}) do
@@ -112,8 +112,9 @@ defmodule AljawadScheduler.SchedulerServer do
            concurrent: concurrent
          }
        ) do
-    current_running = running()
-    count = max(concurrent - current_running, 0)
+    # current_running = running()
+    # count = max(concurrent - current_running, 0)
+    count = 1
 
     queue
     |> next_ranges(count)
